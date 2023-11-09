@@ -6,7 +6,7 @@ import random
 
 plt.style.use("ggplot")
 DATASET_NAME = "HW2_Dataset"
-SURF = cv2.xfeatures2d.SURF_create()
+SIFT = cv2.SIFT_create()
 NEAREST_NEIGHBOR_NUM = 2
 RANSAC_THRESH = 2
 INLIER_THRESH = 2
@@ -17,6 +17,11 @@ search_params = dict(checks=100)
 # Matchers
 brute_force_matcher = cv2.BFMatcher()
 flann_matcher = cv2.FlannBasedMatcher(index_params, search_params)
+
+def show_image(winname, image):
+    cv2.imshow(winname, image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 
 def get_subset_names():
@@ -48,7 +53,7 @@ def main():
             cur_image_gray = cv2.GaussianBlur(cur_image_gray, (3,3), 0)
 
             # Feature extraction, feature matching, Homography finding
-            homography_matrix = stitch_images(cur_image, cur_image_gray, next_image, next_image_gray, feature_points_plot)
+            homography_matrix = stitch_images(cur_image, cur_image_gray, next_image, next_image_gray, feature_points_plot, subset_images_names[i], subset_images_names[i+1])
 
             if homography_matrix is not None:
                 homographies.append(homography_matrix)
@@ -69,25 +74,22 @@ def main():
                 H = np.matmul(H, homographies[i])
 
             panorama = merge_images(cur_image, next_image, H)
-            plt.imshow(cv2.cvtColor(panorama, cv2.COLOR_BGR2RGB))
-            plt.xticks([]), plt.yticks([])
-            plt.show()
+            show_image(f"subset = {subset_name}; image = {subset_images_names[i+1]};", panorama)
 
         panorama = cv2.medianBlur(panorama, 3)
-        plt.imshow(cv2.cvtColor(panorama, cv2.COLOR_BGR2RGB))
-        plt.title('Panorama'), plt.xticks([]), plt.yticks([]), plt.show()
+        show_image("Panorama", panorama)
+        cv2.imwrite(DATASET_NAME + "/" + subset_name + '_gtx.png', panorama)
 
         # Read ground truth panorama image
-        ground_truth = cv2.imread(DATASET_NAME + "/" + subset_name + '_gt.png')
-        plt.imshow(cv2.cvtColor(ground_truth, cv2.COLOR_BGR2RGB))
-        plt.title('Panorama Ground Truth'), plt.xticks([]), plt.yticks([]), plt.show()
+        # ground_truth = cv2.imread(DATASET_NAME + "/" + subset_name + '_gt.png')
+        # show_image('Panorama Ground Truth', ground_truth)
 
 
-def stitch_images(cur_image, cur_image_gray, next_image, next_image_gray, feature_points_plot):
+def stitch_images(cur_image, cur_image_gray, next_image, next_image_gray, feature_points_plot, cur_image_name, next_image_name):
 
     # Feature extraction
-    cur_feature_pts, cur_descs, feature_points_plot = feature_extraction(cur_image, cur_image_gray, feature_points_plot)
-    next_feature_pts, next_descs, feature_points_plot = feature_extraction(next_image, next_image_gray, feature_points_plot)
+    cur_feature_pts, cur_descs, feature_points_plot = feature_extraction(cur_image, cur_image_gray, feature_points_plot, cur_image_name)
+    next_feature_pts, next_descs, feature_points_plot = feature_extraction(next_image, next_image_gray, feature_points_plot, next_image_name)
 
     # Feature matching
     matches = feature_matching(cur_image, cur_feature_pts, cur_descs, next_image, next_feature_pts, next_descs)
@@ -112,11 +114,12 @@ def stitch_images(cur_image, cur_image_gray, next_image, next_image_gray, featur
         return None
 
 
-def feature_extraction(img, img_gray, feature_points_plot):
-    # Feature extraction: find the key points, compute the descriptors with SURF
-    key_pts, descs = SURF.detectAndCompute(img_gray, None)
+def feature_extraction(img, img_gray, feature_points_plot, image_name):
+    # Feature extraction: find the key points, compute the descriptors with SIFT
+    key_pts, descs = SIFT.detectAndCompute(img_gray, None)
     # Plots showing feature points for each ordered pair of sub-image
-    drawn_key_pts = cv2.drawKeypoints(img, key_pts, None, color=(0, 255, 0), flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+    # Only display first 100 key points for simplicity
+    drawn_key_pts = cv2.drawKeypoints(img, key_pts[:100], None, color=(0, 255, 0), flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
 
     if feature_points_plot is None:
         # Assign first image's feature points
@@ -125,9 +128,7 @@ def feature_extraction(img, img_gray, feature_points_plot):
         # Merge first and second images' feature points
         feature_points_plot = np.concatenate((feature_points_plot, drawn_key_pts), axis=1)
         # Plot feature points of images
-        plt.imshow(cv2.cvtColor(feature_points_plot, cv2.COLOR_BGR2RGB))
-        plt.title('Feature Points'), plt.xticks([]), plt.yticks([])
-        plt.show()
+        show_image(f'image = {image_name}; Feature Points', cv2.cvtColor(feature_points_plot, cv2.COLOR_BGR2RGB))
 
     return key_pts, descs, feature_points_plot
 
@@ -155,16 +156,13 @@ def feature_matching(cur_image, cur_feature_pts, cur_descs, next_image, next_fea
         matches = np.asarray(good_matches)
 
         # cv2.drawMatchesKnn expects list of lists as matches.
-        drawn_matches = cv2.drawMatchesKnn(cur_image, cur_feature_pts, next_image, next_feature_pts, good_matches, None, flags=2)
-        plt.imshow(cv2.cvtColor(drawn_matches, cv2.COLOR_BGR2RGB))
-        plt.title('Feature Point Matching Lines'), plt.xticks([]), plt.yticks([])
-        plt.show()
+        # Only display first 100 matches for simplicity
+        drawn_matches = cv2.drawMatchesKnn(cur_image, cur_feature_pts, next_image, next_feature_pts, good_matches[:100], None, flags=2)
+        show_image('Feature Point Matching Lines', cv2.cvtColor(drawn_matches, cv2.COLOR_BGR2RGB))
         return matches
 
     else:
-        plt.imshow(cv2.cvtColor(np.concatenate((cur_image, next_image), axis=1), cv2.COLOR_BGR2RGB))
-        plt.title('Feature Point Matching Lines'), plt.xticks([]), plt.yticks([])
-        plt.show()
+        show_image('Feature Point Matching Lines', cv2.cvtColor(np.concatenate((cur_image, next_image), axis=1), cv2.COLOR_BGR2RGB))
         return None
 
 
@@ -217,9 +215,7 @@ def merge_images(cur_image, next_image, H):
                 transformed_matrix[i_match, j_match] = next_image_matrix[i, j]
 
     transformed_next_image = transpose_copy(transformed_matrix, "matrix")
-    plt.imshow(transformed_next_image)
-    plt.title(''), plt.xticks([]), plt.yticks([])
-    plt.show()
+    show_image('', transformed_next_image)
 
     # Find non black pixels in current image and create empty mask
     non_black_mask = np.all(cur_image != [0, 0, 0], axis=-1)
@@ -229,8 +225,7 @@ def merge_images(cur_image, next_image, H):
     # Assign non black pixels of current image to transformed next image
     transformed_next_image[empty_mask, :] = cur_image[non_black_mask, :]
     transformed_next_image = crop_image(transformed_next_image)
-    plt.imshow(cv2.cvtColor(transformed_next_image, cv2.COLOR_BGR2RGB))
-    plt.show()
+    show_image("", cv2.cvtColor(transformed_next_image, cv2.COLOR_BGR2RGB))
     return transformed_next_image
 
 
